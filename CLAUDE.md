@@ -26,7 +26,7 @@ just clean                  # Remove build artifacts from output/
 
 ### Build Pipeline
 
-1. **`Containerfile`** — The image definition. Uses a two-stage pattern: a scratch `ctx` stage copies `build_files/` without including them in the final layer. The base image is `ghcr.io/ublue-os/bazzite:stable`. Ends with `bootc container lint`.
+1. **`Containerfile`** — The image definition. Uses a two-stage pattern: a scratch `ctx` stage copies `build_files/` without including them in the final layer. The base image is `ghcr.io/ublue-os/bazzite-gnome:stable`. Ends with `bootc container lint`.
 2. **`build_files/build.sh`** — Executed during the container build (`RUN /ctx/build.sh`). This is the primary place to install packages via `dnf5` and enable systemd units. It runs with `set -ouex pipefail`.
 3. **GitHub Actions (`build.yml`)** — Triggers on push to `main`, PRs, and daily schedule. Builds with `buildah`, pushes to GHCR only on non-PR pushes to the default branch, and signs with Cosign using `SIGNING_SECRET`.
 4. **GitHub Actions (`build-disk.yml`)** — Manually triggered workflow that produces `qcow2` and `anaconda-iso` disk images from the published OCI image using `bootc-image-builder`. Can optionally upload to S3.
