@@ -205,9 +205,13 @@ build-qcow2 $target_image=("localhost/" + image_name) $tag=default_tag: && (_bui
 [group('Build Virtal Machine Image')]
 build-raw $target_image=("localhost/" + image_name) $tag=default_tag: && (_build-bib target_image tag "raw" "disk_config/disk.toml")
 
-# Build an ISO virtual machine image
+# Build a GNOME ISO virtual machine image
 [group('Build Virtal Machine Image')]
-build-iso $target_image=("localhost/" + image_name) $tag=default_tag: && (_build-bib target_image tag "iso" "disk_config/iso.toml")
+build-iso-gnome $target_image=("localhost/" + image_name) $tag=default_tag: && (_build-bib target_image tag "iso" "disk_config/iso-gnome.toml")
+
+# Build a KDE ISO virtual machine image
+[group('Build Virtal Machine Image')]
+build-iso-kde $target_image=("localhost/" + image_name) $tag=default_tag: && (_build-bib target_image tag "iso" "disk_config/iso-kde.toml")
 
 # Rebuild a QCOW2 virtual machine image
 [group('Build Virtal Machine Image')]
@@ -217,9 +221,13 @@ rebuild-qcow2 $target_image=("localhost/" + image_name) $tag=default_tag: && (_r
 [group('Build Virtal Machine Image')]
 rebuild-raw $target_image=("localhost/" + image_name) $tag=default_tag: && (_rebuild-bib target_image tag "raw" "disk_config/disk.toml")
 
-# Rebuild an ISO virtual machine image
+# Rebuild a GNOME ISO virtual machine image
 [group('Build Virtal Machine Image')]
-rebuild-iso $target_image=("localhost/" + image_name) $tag=default_tag: && (_rebuild-bib target_image tag "iso" "disk_config/iso.toml")
+rebuild-iso-gnome $target_image=("localhost/" + image_name) $tag=default_tag: && (_rebuild-bib target_image tag "iso" "disk_config/iso-gnome.toml")
+
+# Rebuild a KDE ISO virtual machine image
+[group('Build Virtal Machine Image')]
+rebuild-iso-kde $target_image=("localhost/" + image_name) $tag=default_tag: && (_rebuild-bib target_image tag "iso" "disk_config/iso-kde.toml")
 
 # Run a virtual machine with the specified image type and configuration
 _run-vm $target_image $tag $type $config:
@@ -271,9 +279,13 @@ run-vm-qcow2 $target_image=("localhost/" + image_name) $tag=default_tag: && (_ru
 [group('Run Virtal Machine')]
 run-vm-raw $target_image=("localhost/" + image_name) $tag=default_tag: && (_run-vm target_image tag "raw" "disk_config/disk.toml")
 
-# Run a virtual machine from an ISO
+# Run a virtual machine from a GNOME ISO
 [group('Run Virtal Machine')]
-run-vm-iso $target_image=("localhost/" + image_name) $tag=default_tag: && (_run-vm target_image tag "iso" "disk_config/iso.toml")
+run-vm-iso-gnome $target_image=("localhost/" + image_name) $tag=default_tag: && (_run-vm target_image tag "iso" "disk_config/iso-gnome.toml")
+
+# Run a virtual machine from a KDE ISO
+[group('Run Virtal Machine')]
+run-vm-iso-kde $target_image=("localhost/" + image_name) $tag=default_tag: && (_run-vm target_image tag "iso" "disk_config/iso-kde.toml")
 
 # Run a virtual machine using systemd-vmspawn
 [group('Run Virtal Machine')]

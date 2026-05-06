@@ -16,7 +16,7 @@ on:
 env:
   IMAGE_DESC: "Bazzite with FreeIPA client pre-installed for domain-joined systems"
   IMAGE_KEYWORDS: "bootc,ublue,universal-blue,freeipa,sssd,bazzite"
-  IMAGE_LOGO_URL: "https://avatars.githubusercontent.com/u/120078124?s=200&v=4"  # Put your own image here for a fancy profile on https://artifacthub.io/!
+  IMAGE_LOGO_URL: "https://github.com/nativetexan70.png"
   IMAGE_NAME: "${{ github.event.repository.name }}"  # output image name, usually same as repo name
   IMAGE_REGISTRY: "ghcr.io/${{ github.repository_owner }}"  # do not edit
   DEFAULT_TAG: "latest"

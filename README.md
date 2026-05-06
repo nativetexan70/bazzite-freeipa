@@ -138,18 +138,22 @@ just check          # Validate Justfile syntax
 just clean          # Remove local build artifacts
 ```
 
-To build and run a QCOW2 virtual machine locally:
+To build and run disk images locally:
 
 ```bash
-just build-qcow2    # Build a QCOW2 disk image via bootc-image-builder
-just run-vm-qcow2   # Run the QCOW2 image in a VM (opens browser at localhost:8006+)
+just build-qcow2        # Build a QCOW2 disk image via bootc-image-builder
+just run-vm-qcow2       # Run the QCOW2 image in a VM (opens browser at localhost:8006+)
+just build-iso-gnome    # Build a GNOME installer ISO
+just build-iso-kde      # Build a KDE installer ISO
+just run-vm-iso-gnome   # Run the GNOME ISO in a VM
+just run-vm-iso-kde     # Run the KDE ISO in a VM
 ```
 
 ---
 
 # Building Disk Images
 
-The [build-disk.yml](./.github/workflows/build-disk.yml) GitHub Actions workflow builds installable disk images (`qcow2` and `anaconda-iso`) from the published OCI image. Trigger it manually from the Actions tab, selecting `amd64` or `arm64`.
+The [build-disk.yml](./.github/workflows/build-disk.yml) GitHub Actions workflow builds installable disk images (`qcow2`, `anaconda-iso-gnome`, and `anaconda-iso-kde`) from the published OCI image. Trigger it manually from the Actions tab, selecting `amd64` or `arm64`.
 
 The ISO kickstart is pre-configured to switch a newly installed system to `ghcr.io/nativetexan70/bazzite-freeipa:latest` automatically.
 
