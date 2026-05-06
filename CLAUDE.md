@@ -45,6 +45,6 @@ The CI pipeline signs images with [Cosign](https://github.com/sigstore/cosign). 
 ### Justfile Environment Variables
 
 Override defaults via environment:
-- `IMAGE_NAME` (default: `image-template`) — used as the podman image tag
+- `IMAGE_NAME` (default: `bazzite-freeipa`) — used as the podman image tag
 - `DEFAULT_TAG` (default: `latest`)
 - `BIB_IMAGE` — the bootc-image-builder image used for disk builds
