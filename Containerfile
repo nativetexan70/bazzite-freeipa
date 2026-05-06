@@ -32,6 +32,10 @@ RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=cache,dst=/var/log \
     --mount=type=tmpfs,dst=/tmp \
     /ctx/build.sh
+
+# Remove upstream hostname so bootc never overwrites the locally set hostname.
+# This is required for FreeIPA — a hostname change after joining breaks Kerberos.
+RUN rm -f /etc/hostname
     
 ### LINTING
 ## Verify final image and contents are correct.
