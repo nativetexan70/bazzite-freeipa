@@ -33,9 +33,11 @@ RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=tmpfs,dst=/tmp \
     /ctx/build.sh
 
-# Remove upstream hostname so bootc never overwrites the locally set hostname.
-# This is required for FreeIPA — a hostname change after joining breaks Kerberos.
-RUN rm -f /etc/hostname
+# COPY writes directly to the image layer and is not subject to the bind-mount
+# that the OCI runtime places on /etc/hostname during RUN steps. This ships an
+# empty /etc/hostname so bootc has no upstream value to merge against, preventing
+# it from ever overwriting the locally configured hostname (required for FreeIPA).
+COPY --from=ctx /hostname /etc/hostname
     
 ### LINTING
 ## Verify final image and contents are correct.
