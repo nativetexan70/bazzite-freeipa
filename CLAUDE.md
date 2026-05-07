@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Repository Is
 
-A custom [bootc](https://github.com/bootc-dev/bootc) OCI image layered on top of [Bazzite](https://github.com/ublue-os/bazzite) (a Universal Blue image), adding FreeIPA client support. Images are built via GitHub Actions and published to GHCR (`ghcr.io/<owner>/<repo-name>`).
+A custom [bootc](https://github.com/bootc-dev/bootc) OCI image layered on top of `ghcr.io/ublue-os/bazzite-gnome:stable` (a Universal Blue image), adding FreeIPA client support. Images are built via GitHub Actions and published to `ghcr.io/nativetexan70/bazzite-freeipa`. The image is designed so that a FreeIPA domain join survives `bootc` updates via bootc's three-way `/etc` merge.
 
 ## Common Commands
 
@@ -17,7 +17,11 @@ just format                 # Run shfmt on all .sh files
 just check                  # Validate Justfile syntax
 just fix                    # Auto-fix Justfile syntax
 just build-qcow2            # Build QCOW2 VM image via bootc-image-builder
+just build-iso-gnome        # Build GNOME installer ISO
+just build-iso-kde          # Build KDE installer ISO
 just run-vm-qcow2           # Run QCOW2 VM (builds if needed, opens browser at port 8006+)
+just run-vm-iso-gnome       # Run GNOME ISO in a VM
+just run-vm-iso-kde         # Run KDE ISO in a VM
 just spawn-vm               # Run VM using systemd-vmspawn
 just clean                  # Remove build artifacts from output/
 ```
@@ -26,17 +30,26 @@ just clean                  # Remove build artifacts from output/
 
 ### Build Pipeline
 
-1. **`Containerfile`** — The image definition. Uses a two-stage pattern: a scratch `ctx` stage copies `build_files/` without including them in the final layer. The base image is `ghcr.io/ublue-os/bazzite-gnome:stable`. Ends with `bootc container lint`.
-2. **`build_files/build.sh`** — Executed during the container build (`RUN /ctx/build.sh`). This is the primary place to install packages via `dnf5` and enable systemd units. It runs with `set -ouex pipefail`.
-3. **GitHub Actions (`build.yml`)** — Triggers on push to `main`, PRs, and daily schedule. Builds with `buildah`, pushes to GHCR only on non-PR pushes to the default branch, and signs with Cosign using `SIGNING_SECRET`.
-4. **GitHub Actions (`build-disk.yml`)** — Manually triggered workflow that produces `qcow2` and `anaconda-iso` disk images from the published OCI image using `bootc-image-builder`. Can optionally upload to S3.
+1. **`Containerfile`** — Two-stage build: a scratch `ctx` stage copies `build_files/` (making scripts available without embedding them in the final layer). The base image is `ghcr.io/ublue-os/bazzite-gnome:stable`. After the main `RUN` step, a `COPY` instruction ships an empty `/etc/hostname` (see Hostname Preservation below). Ends with `bootc container lint`.
+2. **`build_files/build.sh`** — Executed during the container build (`RUN /ctx/build.sh`). Installs `freeipa-client`, `oddjob`, `oddjob-mkhomedir`; creates `/etc/ipa/` and `/etc/sssd/conf.d/` directory skeletons; pre-creates `/var/lib/sss/` and `/var/log/sssd/`; enables `sssd`, `oddjobd`, and `podman.socket`. Runs with `set -ouex pipefail`.
+3. **`build_files/hostname`** — Empty file copied to `/etc/hostname` in the image via `COPY`. Must remain empty.
+4. **GitHub Actions (`build.yml`)** — Triggers on push to `main`, PRs, and daily schedule. Builds with `buildah`, pushes to GHCR only on non-PR pushes to the default branch, signs with Cosign using `SIGNING_SECRET`.
+5. **GitHub Actions (`build-disk.yml`)** — Manually triggered workflow producing `qcow2`, `anaconda-iso-gnome`, and `anaconda-iso-kde` disk images from the published OCI image using `bootc-image-builder`. Can optionally upload to S3.
 
 ### Key Files to Modify
 
 - **Add packages or system configuration**: Edit `build_files/build.sh`
 - **Change base image**: Edit the `FROM` line in `Containerfile`
-- **Change disk image layout**: Edit `disk_config/disk.toml` (for qcow2/raw) or `disk_config/iso-gnome.toml` / `disk_config/iso-kde.toml` (for ISOs)
+- **Change disk image layout**: Edit `disk_config/disk.toml` (qcow2/raw) or `disk_config/iso-gnome.toml` / `disk_config/iso-kde.toml` (ISOs)
 - **Change CI behavior or image metadata**: Edit `.github/workflows/build.yml`
+
+### FreeIPA Join Persistence
+
+bootc performs a three-way `/etc` merge on update: it diffs old-image `/etc` vs new-image `/etc` and applies that delta to local `/etc`. Files written by `ipa-client-install` (`sssd.conf`, `krb5.conf`, `/etc/ipa/default.conf`, etc.) are never shipped in this image, so bootc treats them as local additions and never overwrites them. The `/etc/ipa/` and `/etc/sssd/conf.d/` directories are present in the image as empty skeletons — no config content is shipped inside them.
+
+### Hostname Preservation
+
+The upstream Bazzite image ships `/etc/hostname` with a default value. To prevent bootc from ever merging that default over a locally configured hostname (which would break Kerberos), this image ships `/etc/hostname` as an empty file via a `COPY` instruction. `RUN rm -f /etc/hostname` does not work because the OCI build runtime bind-mounts `/etc/hostname` into every `RUN` container, causing "Device or resource busy". `COPY` writes directly to the image layer filesystem outside of a running container and is not subject to the bind-mount.
 
 ### Image Signing
 
