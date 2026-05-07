@@ -108,6 +108,64 @@ Runtime state (`/var/lib/sss/`, `/var/log/sssd/`) lives under `/var`, which boot
 
 ---
 
+# Changes to the Base Bazzite Image
+
+This image is built on top of `ghcr.io/ublue-os/bazzite-gnome:stable` and makes the following deliberate modifications to support FreeIPA client functionality and ensure join state survives `bootc` updates.
+
+## Packages Added
+
+| Package | Purpose |
+|---|---|
+| `freeipa-client` | Core FreeIPA client tooling (`ipa-client-install`, `ipa` CLI). Also pulls in `sssd`, `krb5-workstation`, `certmonger`, and other required dependencies. |
+| `oddjob` | D-Bus service that allows `sssd` to perform privileged operations (e.g. creating home directories) on behalf of unprivileged processes. |
+| `oddjob-mkhomedir` | PAM module and helper that automatically creates a home directory on first login for domain users. |
+
+## Systemd Units Enabled
+
+| Unit | Purpose |
+|---|---|
+| `sssd` | System Security Services Daemon — handles Kerberos authentication, LDAP user/group lookups, and caching for the FreeIPA domain. |
+| `oddjobd` | D-Bus daemon for `oddjob`. Must be running for `pam_oddjob_mkhomedir` to create home directories at login. |
+| `podman.socket` | Inherited from the Bazzite base; retained for rootless container support. |
+
+## /etc Directory Skeleton
+
+`ipa-client-install` writes its configuration into `/etc/ipa/`, `/etc/sssd/`, and `/etc/krb5.conf`. For bootc's three-way `/etc` merge to treat those files as local additions (and therefore never overwrite them on update), the directories must exist in the image but must contain no config file content.
+
+This image creates the following empty directory skeletons at build time:
+
+| Path | Permissions | Purpose |
+|---|---|---|
+| `/etc/ipa/` | `0755` | Root directory for IPA client config. `ipa-client-install` writes `default.conf` here. |
+| `/etc/sssd/conf.d/` | `0750` | Drop-in directory for SSSD config fragments. `ipa-client-install` writes `sssd.conf` one level up. |
+
+No config files are shipped inside these directories. Every file written by `ipa-client-install` is a local addition from bootc's perspective and will never be touched by an image update.
+
+## /var Runtime Directories
+
+SSSD's cache and runtime socket directories live under `/var`, which bootc never modifies. They are pre-created at build time to avoid race conditions on first boot before `sssd` has initialised them:
+
+| Path | Permissions |
+|---|---|
+| `/var/lib/sss/db` | `0711` |
+| `/var/lib/sss/pipes/private` | `0755` |
+| `/var/log/sssd` | `0755` |
+
+## Hostname Preservation
+
+The upstream Bazzite image ships `/etc/hostname` containing the default value `bazzite`. If bootc's three-way merge applies a new image that still contains that default, and the local hostname has never been changed from the default, the hostname can be reset — breaking Kerberos, which ties tickets to the machine's FQDN.
+
+This image ships `/etc/hostname` as an **empty file**, written via a `COPY` instruction in the Containerfile (not a `RUN` step — the OCI build runtime bind-mounts `/etc/hostname` into every `RUN` container, making `rm` fail with *Device or resource busy*). With an empty file in the image, bootc has no meaningful upstream value to merge against, and the hostname set during installation or by `hostnamectl` is always preserved across updates.
+
+> [!IMPORTANT]
+> Set the correct FQDN hostname **before** running `ipa-client-install`. The hostname is baked into the Kerberos principal and LDAP host entry at join time.
+>
+> ```bash
+> sudo hostnamectl set-hostname myhost.your.domain.example
+> ```
+
+---
+
 # Keeping the Image Updated
 
 `bootc` checks for and stages updates automatically if the `bootc-fetch-apply-updates.timer` systemd unit is enabled. To enable automatic updates:
