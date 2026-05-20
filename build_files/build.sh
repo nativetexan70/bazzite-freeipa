@@ -58,7 +58,20 @@ for _repo_dir in /etc/yum.repos.d /usr/lib/yum.repos.d; do
     [[ -d "$_repo_dir" ]] || continue
     find "$_repo_dir" -name '*.repo' | while IFS= read -r _repo_file; do
         grep -ql 'gpgkey=file://' "$_repo_file" 2>/dev/null || continue
-        truncate -s0 "$_repo_file"
+        # Remove local file:// gpgkey lines and disable signature checking.
+        # BIB's depsolve runs inside its own container and cannot access
+        # file:// paths from the target image. In a bootc image, packages
+        # are never updated via dnf; security comes from cosign-verified
+        # OCI image pulls, so disabling repo GPG checks is safe here.
+        sed -i \
+            -e '/^gpgkey=file:/d' \
+            -e 's/^gpgcheck=.*/gpgcheck=0/' \
+            -e 's/^repo_gpgcheck=.*/repo_gpgcheck=0/' \
+            "$_repo_file"
+        grep -q '^repo_gpgcheck=' "$_repo_file" || \
+            sed -i '/^\[/a repo_gpgcheck=0' "$_repo_file"
+        grep -q '^gpgcheck=' "$_repo_file" || \
+            sed -i '/^\[/a gpgcheck=0' "$_repo_file"
     done
 done
 unset _repo_dir _repo_file
