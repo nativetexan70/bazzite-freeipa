@@ -1,6 +1,6 @@
 export image_name := env("IMAGE_NAME", "bazzite-freeipa") # output image name, usually same as repo name, change as needed
 export default_tag := env("DEFAULT_TAG", "latest")
-export bib_image := env("BIB_IMAGE", "quay.io/centos-bootc/bootc-image-builder:latest")
+export bib_image := env("BIB_IMAGE", "registry.fedoraproject.org/fedora/bootc-image-builder:latest")
 
 alias build-vm := build-qcow2
 alias rebuild-vm := rebuild-qcow2
