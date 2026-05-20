@@ -40,17 +40,17 @@ systemctl enable podman.socket
 ### Fix bootc-image-builder ISO manifest generation compatibility
 #
 # Repos inherited from the Bazzite base image (e.g. terra-mesa) reference
-# their GPG keys via local file:// paths. When BIB generates an anaconda-iso
-# manifest it extracts repo configs from the container image and runs dnf
-# dependency resolution inside its own container — which has no access to
-# the image's /etc/pki/rpm-gpg/ directory. The missing key file causes
-# manifest generation to abort before any package is downloaded.
+# GPG keys via local file:// paths in /etc/pki/rpm-gpg/. BIB's anaconda-iso
+# manifest generation extracts repo configs from the container image and runs
+# dnf dependency resolution inside its own container, which has no access to
+# those key files. Patching gpgcheck=0 alone is insufficient — dnf also
+# enforces repo_gpgcheck (repomd.xml signature verification) and fails with
+# "Signing key not found" when the gpgkey reference is absent.
 #
-# The qcow2 type deploys the container directly and is not affected.
-# For ISO builds, disable GPG checking on any repo with a local key reference.
-# In a bootc image, updates happen via bootc (cosign-verified), not dnf,
-# so repo GPG checking in the deployed system is not a meaningful security
-# boundary.
+# In a bootc image, packages are never updated via dnf; bootc upgrade pulls
+# cosign-verified OCI images instead. These repos serve no purpose in the
+# deployed system. Remove any repo file that carries a local file:// gpgkey
+# reference so BIB's manifest generation can proceed without error.
 find /etc/yum.repos.d/ -name '*.repo' \
-    | xargs -r grep -l 'gpgkey=file://' \
-    | xargs -r sed -i -e '/^gpgkey=file:\/\//d' -e 's/^gpgcheck=.*/gpgcheck=0/'
+    -exec grep -ql 'gpgkey=file://' {} \; \
+    | xargs -r rm -f
