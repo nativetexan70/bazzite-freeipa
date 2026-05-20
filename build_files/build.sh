@@ -49,8 +49,16 @@ systemctl enable podman.socket
 #
 # In a bootc image, packages are never updated via dnf; bootc upgrade pulls
 # cosign-verified OCI images instead. These repos serve no purpose in the
-# deployed system. Remove any repo file that carries a local file:// gpgkey
+# deployed system. Truncate any repo file that carries a local file:// gpgkey
 # reference so BIB's manifest generation can proceed without error.
-find /etc/yum.repos.d/ /usr/lib/yum.repos.d/ -name '*.repo' 2>/dev/null \
-    -exec grep -ql 'gpgkey=file://' {} \; \
-    | xargs -r truncate -s0 || true
+#
+# Each directory is searched separately so find exits 0 when the directory
+# exists, avoiding a pipefail abort if one of the directories is absent.
+for _repo_dir in /etc/yum.repos.d /usr/lib/yum.repos.d; do
+    [[ -d "$_repo_dir" ]] || continue
+    find "$_repo_dir" -name '*.repo' | while IFS= read -r _repo_file; do
+        grep -ql 'gpgkey=file://' "$_repo_file" 2>/dev/null || continue
+        truncate -s0 "$_repo_file"
+    done
+done
+unset _repo_dir _repo_file
