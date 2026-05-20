@@ -196,22 +196,76 @@ just check          # Validate Justfile syntax
 just clean          # Remove local build artifacts
 ```
 
-To build and run disk images locally:
+---
+
+# Building Disk Images Locally
+
+Disk images (QCOW2 and installer ISOs) are produced by [bootc-image-builder](https://github.com/osbuild/bootc-image-builder) running as a privileged Podman container. `just` and `podman` are required. Both are available by default on all Universal Blue images.
+
+> [!IMPORTANT]
+> ISO builds require the published OCI image to be accessible. The `build-iso-*` targets use the locally built container image (`localhost/bazzite-freeipa:latest`). The `rebuild-iso-*` targets rebuild the container image first.
+
+## Build Sequence
+
+Always follow this order when building locally:
+
+1. **Build the container image** — this produces `localhost/bazzite-freeipa:latest` in your local Podman store:
+
+   ```bash
+   just build
+   ```
+
+2. **Build the disk image** — this invokes bootc-image-builder against the locally built image:
+
+   ```bash
+   just build-iso-gnome    # Anaconda installer ISO (GNOME desktop)
+   just build-iso-kde      # Anaconda installer ISO (KDE desktop)
+   just build-qcow2        # QCOW2 virtual machine image
+   ```
+
+   Output is written to `output/` in the repository root.
+
+   If you want to rebuild the container image and the disk image in a single step, use the `rebuild-*` variants instead:
+
+   ```bash
+   just rebuild-iso-gnome
+   just rebuild-iso-kde
+   just rebuild-qcow2
+   ```
+
+> [!NOTE]
+> `just build-iso-gnome` (and the other `build-*` targets) do **not** rebuild the container image. If you have made changes to `build_files/build.sh` or `Containerfile`, run `just build` first, or use `just rebuild-iso-gnome` to do both steps automatically.
+
+## Running a Built Image in a VM
+
+After a successful build you can boot the image locally in a browser-based VM:
 
 ```bash
-just build-qcow2        # Build a QCOW2 disk image via bootc-image-builder
-just run-vm-qcow2       # Run the QCOW2 image in a VM (opens browser at localhost:8006+)
-just build-iso-gnome    # Build a GNOME installer ISO
-just build-iso-kde      # Build a KDE installer ISO
-just run-vm-iso-gnome   # Run the GNOME ISO in a VM
-just run-vm-iso-kde     # Run the KDE ISO in a VM
+just run-vm-qcow2       # Boot the QCOW2 image (opens browser at localhost:8006+)
+just run-vm-iso-gnome   # Boot the GNOME ISO in a VM
+just run-vm-iso-kde     # Boot the KDE ISO in a VM
 ```
+
+The VM runner requires `podman` and KVM (`/dev/kvm`). A browser window opens automatically after ~30 seconds.
+
+## Output Files
+
+| Target | Output path |
+|---|---|
+| `build-qcow2` | `output/qcow2/disk.qcow2` |
+| `build-iso-gnome` | `output/bootiso/install.iso` |
+| `build-iso-kde` | `output/bootiso/install.iso` |
+
+Run `just clean` to remove all build artifacts.
 
 ---
 
-# Building Disk Images
+# Building Disk Images via GitHub Actions
 
-The [build-disk.yml](./.github/workflows/build-disk.yml) GitHub Actions workflow builds installable disk images (`qcow2`, `anaconda-iso-gnome`, and `anaconda-iso-kde`) from the published OCI image. Trigger it manually from the Actions tab, selecting `amd64` or `arm64`.
+The [build-disk.yml](./.github/workflows/build-disk.yml) workflow builds installable disk images (`qcow2`, `anaconda-iso-gnome`, and `anaconda-iso-kde`) from the **published** OCI image at `ghcr.io/nativetexan70/bazzite-freeipa:latest`. Trigger it manually from the **Actions** tab, selecting `amd64` or `arm64`.
+
+> [!NOTE]
+> The GitHub Actions workflow uses the last image pushed to GHCR, not your local build. Push your changes and wait for the `build.yml` workflow to complete before triggering `build-disk.yml`.
 
 The ISO kickstart is pre-configured to switch a newly installed system to `ghcr.io/nativetexan70/bazzite-freeipa:latest` automatically.
 
