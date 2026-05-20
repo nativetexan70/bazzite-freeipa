@@ -53,4 +53,4 @@ systemctl enable podman.socket
 # reference so BIB's manifest generation can proceed without error.
 find /etc/yum.repos.d/ /usr/lib/yum.repos.d/ -name '*.repo' 2>/dev/null \
     -exec grep -ql 'gpgkey=file://' {} \; \
-    | xargs -r truncate -s0
+    | xargs -r truncate -s0 || true
