@@ -37,15 +37,20 @@ systemctl enable sssd
 systemctl enable oddjobd
 systemctl enable podman.socket
 
-### Fix bootc-image-builder SELinux relabeling compatibility
+### Fix bootc-image-builder ISO manifest generation compatibility
 #
-# oidc_child is an sssd binary for OIDC/OAuth2 authentication flows.
-# It carries a Fedora-specific SELinux file type (sssd_oidc_child_exec_t)
-# that does not exist in the CentOS-based bootc-image-builder's SELinux
-# policy. Combined with a PCRE2 version mismatch between the BIB's setfiles
-# (10.46) and the Bazzite image's file_contexts.bin (10.47), setfiles fails
-# with Permission denied when it encounters this binary and aborts the build.
+# Repos inherited from the Bazzite base image (e.g. terra-mesa) reference
+# their GPG keys via local file:// paths. When BIB generates an anaconda-iso
+# manifest it extracts repo configs from the container image and runs dnf
+# dependency resolution inside its own container — which has no access to
+# the image's /etc/pki/rpm-gpg/ directory. The missing key file causes
+# manifest generation to abort before any package is downloaded.
 #
-# Standard Kerberos/LDAP FreeIPA authentication never invokes oidc_child.
-# Remove it so setfiles has nothing to fail on.
-rm -f /usr/libexec/sssd/oidc_child
+# The qcow2 type deploys the container directly and is not affected.
+# For ISO builds, disable GPG checking on any repo with a local key reference.
+# In a bootc image, updates happen via bootc (cosign-verified), not dnf,
+# so repo GPG checking in the deployed system is not a meaningful security
+# boundary.
+find /etc/yum.repos.d/ -name '*.repo' \
+    | xargs -r grep -l 'gpgkey=file://' \
+    | xargs -r sed -i -e '/^gpgkey=file:\/\//d' -e 's/^gpgcheck=.*/gpgcheck=0/'
