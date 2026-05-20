@@ -39,14 +39,13 @@ systemctl enable podman.socket
 
 ### Fix bootc-image-builder SELinux relabeling compatibility
 #
-# The CentOS-based bootc-image-builder ships setfiles with PCRE2 10.46 while
-# Fedora/Bazzite compiles file_contexts.bin with PCRE2 10.47. The version
-# mismatch puts setfiles into a degraded mode that cannot apply a
-# security.selinux xattr to any file that also carries a security.capability
-# xattr, returning exit 255 and failing the entire disk image build.
+# oidc_child is an sssd binary for OIDC/OAuth2 authentication flows.
+# It carries a Fedora-specific SELinux file type (sssd_oidc_child_exec_t)
+# that does not exist in the CentOS-based bootc-image-builder's SELinux
+# policy. Combined with a PCRE2 version mismatch between the BIB's setfiles
+# (10.46) and the Bazzite image's file_contexts.bin (10.47), setfiles fails
+# with Permission denied when it encounters this binary and aborts the build.
 #
-# oidc_child carries cap_dac_override file capabilities for OIDC/OAuth2
-# authentication flows. Standard Kerberos/LDAP FreeIPA auth does not use
-# oidc_child at all. Removing its file capabilities allows setfiles to label
-# it normally; SELinux policy governs its access control in the deployed image.
-setcap -r /usr/libexec/sssd/oidc_child
+# Standard Kerberos/LDAP FreeIPA authentication never invokes oidc_child.
+# Remove it so setfiles has nothing to fail on.
+rm -f /usr/libexec/sssd/oidc_child
