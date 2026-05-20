@@ -51,6 +51,6 @@ systemctl enable podman.socket
 # cosign-verified OCI images instead. These repos serve no purpose in the
 # deployed system. Remove any repo file that carries a local file:// gpgkey
 # reference so BIB's manifest generation can proceed without error.
-find /etc/yum.repos.d/ -name '*.repo' \
+find /etc/yum.repos.d/ /usr/lib/yum.repos.d/ -name '*.repo' 2>/dev/null \
     -exec grep -ql 'gpgkey=file://' {} \; \
     | xargs -r rm -f
