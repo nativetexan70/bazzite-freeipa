@@ -100,7 +100,11 @@ chmod 0755 /var/home/linuxbrew
 
 curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh \
     -o /tmp/brew-install.sh
-runuser -u linuxbrew -- env NONINTERACTIVE=1 bash /tmp/brew-install.sh
+# runuser/su both invoke PAM which fails in a container build environment.
+# setpriv drops to the target UID/GID without PAM and is safe in containers.
+setpriv --reuid=linuxbrew --regid=linuxbrew --init-groups \
+    env HOME=/home/linuxbrew USER=linuxbrew NONINTERACTIVE=1 \
+    bash /tmp/brew-install.sh
 
 chgrp -R brew /home/linuxbrew/.linuxbrew
 chmod -R g+rwX /home/linuxbrew/.linuxbrew
