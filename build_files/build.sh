@@ -88,9 +88,15 @@ unset _repo_dir _repo_file
 # FreeIPA domain users added to this group can run 'brew install'. Users not
 # in the group can still run any package that is already installed.
 
-useradd -r -m -d /home/linuxbrew -s /bin/bash linuxbrew
+useradd -r -M -d /home/linuxbrew -s /bin/bash linuxbrew
 groupadd -r brew
 usermod -aG brew linuxbrew
+
+# /home is a symlink to /var/home in Bazzite; create the real directory
+# since the symlink target does not exist during the container build.
+mkdir -p /var/home/linuxbrew
+chown linuxbrew:linuxbrew /var/home/linuxbrew
+chmod 0755 /var/home/linuxbrew
 
 curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh \
     -o /tmp/brew-install.sh
