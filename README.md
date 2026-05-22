@@ -128,6 +128,45 @@ This image is built on top of `ghcr.io/ublue-os/bazzite-gnome:stable` and makes 
 | `oddjobd` | D-Bus daemon for `oddjob`. Must be running for `pam_oddjob_mkhomedir` to create home directories at login. |
 | `podman.socket` | Inherited from the Bazzite base; retained for rootless container support. |
 
+## Homebrew
+
+[Homebrew](https://brew.sh) is installed system-wide at `/home/linuxbrew/.linuxbrew` and is available to every user — including FreeIPA domain users — without any per-user setup.
+
+The brew environment is sourced automatically for all login and interactive shells via `/etc/profile.d/brew.sh`. No manual PATH configuration is required.
+
+### How it persists across bootc updates
+
+In a bootc deployment `/home` is a symlink to `/var/home`. The `/var` tree is seeded from the OCI image on first install and preserved across `bootc upgrade` runs. This means the Homebrew installation is present from the very first boot and survives image updates independently. Packages you install via `brew` after deployment are not affected by image updates.
+
+### Running installed packages
+
+All users can run any package already installed in the shared prefix without any additional configuration. The `brew` command itself is in PATH for every user.
+
+### Installing new packages (write access)
+
+Package installation requires write access to the shared prefix. Access is controlled by the `brew` group.
+
+**For local users:**
+
+```bash
+sudo usermod -aG brew <username>
+```
+
+The user must log out and back in for the group change to take effect.
+
+**For FreeIPA domain users:**
+
+Add the user to the local `brew` group on each host where they need install access:
+
+```bash
+sudo usermod -aG brew <domain-username>
+```
+
+Or manage it centrally via an IPA sudo rule or HBAC rule that grants `usermod` privileges to a designated admin group.
+
+> [!NOTE]
+> Users not in the `brew` group can still run any package that is already installed. Only writing new packages to the shared prefix requires group membership.
+
 ## /etc Directory Skeleton
 
 `ipa-client-install` writes its configuration into `/etc/ipa/`, `/etc/sssd/`, and `/etc/krb5.conf`. For bootc's three-way `/etc` merge to treat those files as local additions (and therefore never overwrite them on update), the directories must exist in the image but must contain no config file content.

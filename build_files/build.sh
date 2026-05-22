@@ -75,3 +75,34 @@ for _repo_dir in /etc/yum.repos.d /usr/lib/yum.repos.d; do
     done
 done
 unset _repo_dir _repo_file
+
+### Install Homebrew for all users (including FreeIPA domain users)
+#
+# Homebrew is installed to /home/linuxbrew/.linuxbrew (the standard Linux
+# prefix). In a bootc deployment, /home is a symlink to /var/home. The /var
+# tree is seeded from the OCI image on first install and preserved across
+# bootc upgrades, so the brew installation is present from first boot and
+# survives image updates independently.
+#
+# The 'brew' group grants write access to the installation. Local users and
+# FreeIPA domain users added to this group can run 'brew install'. Users not
+# in the group can still run any package that is already installed.
+
+useradd -r -m -d /home/linuxbrew -s /bin/bash linuxbrew
+groupadd -r brew
+usermod -aG brew linuxbrew
+
+curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh \
+    -o /tmp/brew-install.sh
+runuser -u linuxbrew -- env NONINTERACTIVE=1 bash /tmp/brew-install.sh
+
+chgrp -R brew /home/linuxbrew/.linuxbrew
+chmod -R g+rwX /home/linuxbrew/.linuxbrew
+find /home/linuxbrew/.linuxbrew -type d -exec chmod g+s {} +
+
+cat > /etc/profile.d/brew.sh << 'BREWEOF'
+if [[ -x /home/linuxbrew/.linuxbrew/bin/brew ]]; then
+    eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+fi
+BREWEOF
+chmod 644 /etc/profile.d/brew.sh
