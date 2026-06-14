@@ -116,3 +116,35 @@ if [[ -x /home/linuxbrew/.linuxbrew/bin/brew ]]; then
 fi
 BREWEOF
 chmod 644 /etc/profile.d/brew.sh
+
+### Configure container image signature verification
+#
+# Ship the Cosign public key and a container policy so that deployed systems
+# can verify this image's signature on every bootc upgrade. Without these
+# files the client pulls with ostree-unverified-registry: and skips checking.
+#
+# After this image is deployed, switch to the signed scheme once with:
+#   sudo bootc switch ostree-image-signed:docker://ghcr.io/nativetexan70/bazzite-freeipa:latest
+# Subsequent upgrades will then enforce signature verification automatically.
+
+install -d -m 0755 /etc/pki/containers
+install -m 0644 /ctx/cosign.pub \
+    /etc/pki/containers/ghcr.io-nativetexan70-bazzite-freeipa.pub
+
+install -d -m 0755 /etc/containers/registries.d
+cat > /etc/containers/registries.d/ghcr.io-nativetexan70-bazzite-freeipa.yaml << 'EOF'
+docker:
+  ghcr.io/nativetexan70/bazzite-freeipa:
+    use-sigstore-attachments: true
+EOF
+
+# Patch the existing policy.json (inherited from the base image) rather than
+# replacing it, to preserve verification rules for the base image itself.
+jq '.transports.docker["ghcr.io/nativetexan70/bazzite-freeipa"] = [
+  {
+    "type": "sigstoreSigned",
+    "keyPath": "/etc/pki/containers/ghcr.io-nativetexan70-bazzite-freeipa.pub",
+    "signedIdentity": {"type": "matchRepository"}
+  }
+]' /etc/containers/policy.json > /tmp/policy.json.new
+install -m 0644 /tmp/policy.json.new /etc/containers/policy.json
