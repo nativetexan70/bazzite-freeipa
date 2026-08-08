@@ -31,36 +31,52 @@ install -d -m 0711 /var/lib/sss/db
 install -d -m 0755 /var/lib/sss/pipes/private
 install -d -m 0755 /var/log/sssd
 
-### Work around Intel Tiger Lake audio not being recognized
+### Fix Intel Tiger Lake audio not being recognized (SOF + SoundWire boards)
 #
-# On several Tiger Lake (TGL) platforms, the kernel's default SOF (Sound
-# Open Firmware) driver stack fails to bring up the onboard/HDMI audio
-# codec at all -- no PCM devices show up, or only a "dummy output" does.
-# The documented workaround is to force the legacy snd_hda_intel driver
-# instead of SOF, via the snd-intel-dspcfg module's dsp_driver option:
+# An earlier revision of this image shipped a blanket
+# `options snd-intel-dspcfg dsp_driver=1` modprobe override, forcing the
+# legacy snd_hda_intel driver instead of SOF, based on a workaround
+# documented for HD-Audio Tiger Lake laptops:
 # https://github.com/tirsasaki/Fix-Intel-Tiger-Lake-Audio-Disable-SOF-on-EndeavourOS-Arch-Linux
 #
-# Ship this under /usr/lib/modprobe.d rather than /etc/modprobe.d: modprobe
-# reads /etc, then /run, then /usr/lib (first match for a given option set
-# wins), so /usr/lib/modprobe.d is the correct "image-owned default" location
-# -- it's part of this image like any other file under /usr, and a user who
-# needs a different value can still override it locally under /etc without
-# fighting bootc's /etc merge. Unlike the FreeIPA/Fleet config above, there's
-# no reason to keep this out of the image: nothing else is expected to own
-# or generate this file.
+# That override is actively harmful on Tiger Lake Chromebooks (e.g. the
+# Volteer/Lindar family): those boards drive their speakers/headset over
+# SoundWire -- a Realtek RT5682 codec plus RT1011 amps -- entirely through
+# Intel's SOF DSP, with no HD-Audio codec involved at all. dsp_driver's
+# values are 0=auto, 1=legacy, 2=SST, 3=SOF, 4=AVS; forcing 1 (legacy)
+# means SOF never claims the controller, so the SoundWire codec/amps are
+# never brought up -- no ASoC sound card is registered
+# (`/proc/asound/cards` stays empty) and PipeWire falls back to a fake
+# "Dummy Output" sink, which is the very symptom the override was meant to
+# fix. Auto (0), the kernel default, is correct for these boards, so the
+# fix is to leave dsp_driver alone rather than to override it -- hence no
+# modprobe.d file is shipped here at all.
 #
-# dsp_driver=1 selects the legacy HDA driver. Audio modules aren't pulled
-# into the initramfs on this image (no early-boot dependency on sound), so
-# no dracut/initramfs regeneration is required for the option to take
-# effect -- it applies the next time the affected modules are loaded.
+# Getting a real sound card registered is necessary but not sufficient.
+# WirePlumber imports ALSA cards through the ALSA Use Case Manager (UCM):
+# if a card has no UCM profile, WirePlumber can only offer a routeless
+# "stereo fallback" node, which again looks like "Dummy Output" even
+# though `aplay -l`/`speaker-test` work fine against the card directly.
+# Fedora's alsa-ucm-conf package doesn't carry profiles for several
+# Chromebook SOF boards, including "sof-rt5682" (the card name used by
+# Tiger Lake Chromebooks with the RT5682/RT1011 hardware described above).
+# The actively maintained WeirdTreeThing/alsa-ucm-conf-cros project
+# packages ChromeOS's own topology for these boards as a drop-in overlay
+# onto the standard /usr/share/alsa/ucm2 tree: its ucm2/ directory only
+# adds card, codec, and platform definitions missing upstream (its
+# overrides/ directory replaces upstream configs for the older AVS driver
+# instead, doesn't apply to any SOF board, and is intentionally not
+# installed here).
+# Pinned to a specific commit for build reproducibility.
 
-install -d -m 0755 /usr/lib/modprobe.d
-cat > /usr/lib/modprobe.d/intel-audio-tigerlake.conf << 'EOF'
-# Force the legacy snd_hda_intel driver instead of SOF on Intel Tiger Lake
-# platforms, where SOF fails to bring up onboard/HDMI audio at all. See
-# build.sh for details.
-options snd-intel-dspcfg dsp_driver=1
-EOF
+_ucm_cros_rev="a46dd193ab81ed71c4465453f5297f21e413769f"
+curl -fsSL \
+    "https://github.com/WeirdTreeThing/alsa-ucm-conf-cros/archive/${_ucm_cros_rev}.tar.gz" \
+    -o /tmp/alsa-ucm-conf-cros.tar.gz
+tar -xzf /tmp/alsa-ucm-conf-cros.tar.gz -C /tmp
+install -d -m 0755 /usr/share/alsa/ucm2
+cp -a "/tmp/alsa-ucm-conf-cros-${_ucm_cros_rev}/ucm2/." /usr/share/alsa/ucm2/
+rm -rf /tmp/alsa-ucm-conf-cros.tar.gz "/tmp/alsa-ucm-conf-cros-${_ucm_cros_rev}"
 
 ### Install Fleet agent (fleetd/orbit)
 #
