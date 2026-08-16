@@ -243,6 +243,31 @@ install -m 0644 /ctx/flatpak-inventory.service \
 install -m 0644 /ctx/flatpak-inventory.timer \
     /usr/lib/systemd/system/flatpak-inventory.timer
 
+### Install Trayscale (Tailscale tray GUI) via Flatpak
+#
+# Trayscale (https://github.com/DeedleFake/trayscale, Flathub app ID
+# dev.deedles.Trayscale) is a small GTK4 tray app wrapping the tailscale
+# CLI. It is NOT installed via `flatpak install` here at build time: per
+# the "bootc/ostree do NOT carry /var content..." note in the Fleet agent
+# section above, anything written under /var/lib/flatpak during this RUN
+# step would only exist in this ephemeral build layer and be silently
+# absent after `bootc switch` -- the documented, common path onto this
+# image -- onto a real (non-fresh-install) system. Baking the app and its
+# runtime into /usr and reseeding it via tmpfiles.d (as done for orbit)
+# isn't a good fit either: unlike orbit's two files, a Flatpak app plus its
+# runtime is a large, complex OSTree-like repo layout, and copying it into
+# the image would meaningfully bloat every deployment even for hosts that
+# never use it.
+#
+# Instead, ship a oneshot systemd service that installs it from Flathub on
+# first boot (guarded by a ConditionPathExists so it only ever runs once
+# the app isn't already present) and enable it below. This mirrors how
+# FreeIPA join and Fleet enrollment are also runtime, not build-time,
+# actions in this image.
+
+install -m 0644 /ctx/trayscale-flatpak-install.service \
+    /usr/lib/systemd/system/trayscale-flatpak-install.service
+
 ### Power-saving tuning via powertop --auto-tune
 #
 # powertop --auto-tune applies its recommended power-saving settings
@@ -276,6 +301,7 @@ systemctl enable podman.socket
 # that file is in place, with no extra step required after enrollment.
 systemctl enable orbit || true
 systemctl enable flatpak-inventory.timer
+systemctl enable trayscale-flatpak-install.service
 systemctl enable powertop-autotune.service
 
 ### Fix bootc-image-builder ISO manifest generation compatibility
