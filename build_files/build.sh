@@ -32,53 +32,6 @@ install -d -m 0711 /var/lib/sss/db
 install -d -m 0755 /var/lib/sss/pipes/private
 install -d -m 0755 /var/log/sssd
 
-### Fix Intel Tiger Lake audio not being recognized (SOF + SoundWire boards)
-#
-# An earlier revision of this image shipped a blanket
-# `options snd-intel-dspcfg dsp_driver=1` modprobe override, forcing the
-# legacy snd_hda_intel driver instead of SOF, based on a workaround
-# documented for HD-Audio Tiger Lake laptops:
-# https://github.com/tirsasaki/Fix-Intel-Tiger-Lake-Audio-Disable-SOF-on-EndeavourOS-Arch-Linux
-#
-# That override is actively harmful on Tiger Lake Chromebooks (e.g. the
-# Volteer/Lindar family): those boards drive their speakers/headset over
-# SoundWire -- a Realtek RT5682 codec plus RT1011 amps -- entirely through
-# Intel's SOF DSP, with no HD-Audio codec involved at all. dsp_driver's
-# values are 0=auto, 1=legacy, 2=SST, 3=SOF, 4=AVS; forcing 1 (legacy)
-# means SOF never claims the controller, so the SoundWire codec/amps are
-# never brought up -- no ASoC sound card is registered
-# (`/proc/asound/cards` stays empty) and PipeWire falls back to a fake
-# "Dummy Output" sink, which is the very symptom the override was meant to
-# fix. Auto (0), the kernel default, is correct for these boards, so the
-# fix is to leave dsp_driver alone rather than to override it -- hence no
-# modprobe.d file is shipped here at all.
-#
-# Getting a real sound card registered is necessary but not sufficient.
-# WirePlumber imports ALSA cards through the ALSA Use Case Manager (UCM):
-# if a card has no UCM profile, WirePlumber can only offer a routeless
-# "stereo fallback" node, which again looks like "Dummy Output" even
-# though `aplay -l`/`speaker-test` work fine against the card directly.
-# Fedora's alsa-ucm-conf package doesn't carry profiles for several
-# Chromebook SOF boards, including "sof-rt5682" (the card name used by
-# Tiger Lake Chromebooks with the RT5682/RT1011 hardware described above).
-# The actively maintained WeirdTreeThing/alsa-ucm-conf-cros project
-# packages ChromeOS's own topology for these boards as a drop-in overlay
-# onto the standard /usr/share/alsa/ucm2 tree: its ucm2/ directory only
-# adds card, codec, and platform definitions missing upstream (its
-# overrides/ directory replaces upstream configs for the older AVS driver
-# instead, doesn't apply to any SOF board, and is intentionally not
-# installed here).
-# Pinned to a specific commit for build reproducibility.
-
-_ucm_cros_rev="a46dd193ab81ed71c4465453f5297f21e413769f"
-curl -fsSL \
-    "https://github.com/WeirdTreeThing/alsa-ucm-conf-cros/archive/${_ucm_cros_rev}.tar.gz" \
-    -o /tmp/alsa-ucm-conf-cros.tar.gz
-tar -xzf /tmp/alsa-ucm-conf-cros.tar.gz -C /tmp
-install -d -m 0755 /usr/share/alsa/ucm2
-cp -a "/tmp/alsa-ucm-conf-cros-${_ucm_cros_rev}/ucm2/." /usr/share/alsa/ucm2/
-rm -rf /tmp/alsa-ucm-conf-cros.tar.gz "/tmp/alsa-ucm-conf-cros-${_ucm_cros_rev}"
-
 ### Install Trayscale (Tailscale tray GUI) via Flatpak
 #
 # Trayscale (https://github.com/DeedleFake/trayscale, Flathub app ID
