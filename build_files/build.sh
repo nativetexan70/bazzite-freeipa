@@ -26,11 +26,12 @@ dnf5 install -y \
 install -d -m 0755 /etc/ipa
 install -d -m 0750 /etc/sssd/conf.d
 
-# Ensure sssd runtime and cache directories survive across updates.
-# These already live under /var which is mutable and preserved by bootc.
-install -d -m 0711 /var/lib/sss/db
-install -d -m 0755 /var/lib/sss/pipes/private
-install -d -m 0755 /var/log/sssd
+# sssd's runtime/cache directories under /var are declared via
+# systemd-tmpfiles rather than created directly here -- see var-state.conf
+# for why (bootc container lint's var-tmpfiles check, and avoiding baking
+# content into /var at build time that a real first boot can create itself).
+install -Dm644 /ctx/var-state.conf \
+    /usr/lib/tmpfiles.d/var-state.conf
 
 ### Install Trayscale (Tailscale tray GUI) via Flatpak
 #
@@ -125,39 +126,50 @@ for _repo_dir in /etc/yum.repos.d /usr/lib/yum.repos.d; do
 done
 unset _repo_dir _repo_file
 
-### Install Homebrew for all users (including FreeIPA domain users)
+### Set up Homebrew for all users (including FreeIPA domain users)
 #
 # Homebrew is installed to /home/linuxbrew/.linuxbrew (the standard Linux
-# prefix). In a bootc deployment, /home is a symlink to /var/home. The /var
-# tree is seeded from the OCI image on first install and preserved across
-# bootc upgrades, so the brew installation is present from first boot and
-# survives image updates independently.
+# prefix). In a bootc deployment, /home is a symlink to /var/home.
+#
+# The account is created here, at build time, so /etc/passwd/group ship
+# with it on every image. The actual Homebrew installation, though, is
+# deferred to a first-boot systemd unit (homebrew-install.service) instead
+# of running here: ostree only seeds /var from the image on a machine's
+# very first deployment, and leaves an already-provisioned machine's /var
+# alone on every later bootc upgrade. Installing the (thousands of files)
+# Homebrew tree into /var at build time meant CI rebuilt it from scratch
+# every day for no benefit to any already-deployed machine, and even a
+# brand-new machine's baked-in copy is immediately superseded by
+# Homebrew's own `brew update` anyway. See homebrew-install.sh/.service
+# for the actual install logic.
 #
 # The 'brew' group grants write access to the installation. Local users and
 # FreeIPA domain users added to this group can run 'brew install'. Users not
 # in the group can still run any package that is already installed.
+#
+# The linuxbrew user/brew group are declared via systemd-sysusers rather
+# than useradd/groupadd, with pinned UID/GID (950/951), instead of letting
+# useradd/groupadd allocate whatever system ID happens to be free that day.
+# bootc container lint flags plain useradd/groupadd here ("sysusers" check)
+# for a real reason: /etc/passwd and /etc/group ARE part of bootc's
+# three-way /etc merge on upgrade (unlike /var -- see above), so if two
+# builds of this image allocate a different UID for the same username (a
+# real risk across daily rebuilds, since the free-ID choice depends on
+# whatever other system accounts exist in that day's build), the merge
+# applies that UID change to already-deployed machines. The on-disk files
+# under /var/home/linuxbrew (seeded once, at first install, with the
+# numeric UID baked into their inodes) don't get renumbered to match, so
+# the account silently stops owning its own files. A fixed UID/GID makes
+# every build produce byte-identical passwd/group entries for this
+# account, so there's never a diff for the merge to apply.
+install -Dm644 /ctx/homebrew-sysusers.conf /usr/lib/sysusers.d/homebrew.conf
+systemd-sysusers /usr/lib/sysusers.d/homebrew.conf
 
-useradd -r -M -d /home/linuxbrew -s /bin/bash linuxbrew
-groupadd -r brew
-usermod -aG brew linuxbrew
-
-# /home is a symlink to /var/home in Bazzite; create the real directory
-# since the symlink target does not exist during the container build.
-mkdir -p /var/home/linuxbrew
-chown linuxbrew:linuxbrew /var/home/linuxbrew
-chmod 0755 /var/home/linuxbrew
-
-curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh \
-    -o /tmp/brew-install.sh
-# runuser/su both invoke PAM which fails in a container build environment.
-# setpriv drops to the target UID/GID without PAM and is safe in containers.
-setpriv --reuid=linuxbrew --regid=linuxbrew --init-groups \
-    env HOME=/home/linuxbrew USER=linuxbrew NONINTERACTIVE=1 \
-    bash /tmp/brew-install.sh
-
-chgrp -R brew /home/linuxbrew/.linuxbrew
-chmod -R g+rwX /home/linuxbrew/.linuxbrew
-find /home/linuxbrew/.linuxbrew -type d -exec chmod g+s {} +
+install -Dm755 /ctx/homebrew-install.sh \
+    /usr/libexec/homebrew-install.sh
+install -Dm644 /ctx/homebrew-install.service \
+    /usr/lib/systemd/system/homebrew-install.service
+systemctl enable homebrew-install.service
 
 cat > /etc/profile.d/brew.sh << 'BREWEOF'
 if [[ -x /home/linuxbrew/.linuxbrew/bin/brew ]]; then
