@@ -197,6 +197,7 @@ This image is built on top of `ghcr.io/ublue-os/bazzite-gnome:stable` and makes 
 | `oddjob` | D-Bus service that allows `sssd` to perform privileged operations (e.g. creating home directories) on behalf of unprivileged processes. |
 | `oddjob-mkhomedir` | PAM module and helper that automatically creates a home directory on first login for domain users. |
 | `fleet-osquery` (`orbit`) | Fleet's osquery agent manager. Built at image-build time via `fleetctl package` (no public dnf/yum repo exists for it) and installed without a Fleet server URL or enrollment secret baked in. |
+| `powertop` | Power usage/tuning tool. Its `--auto-tune` mode is run automatically on every boot; see the `powertop-autotune.service` entry below. |
 
 ## Systemd Units Enabled
 
@@ -208,6 +209,7 @@ This image is built on top of `ghcr.io/ublue-os/bazzite-gnome:stable` and makes 
 | `orbit` | Fleet's agent manager. Enabled unconfigured; it logs connection errors until `/etc/default/orbit` is populated (see [Setting Up the Fleet Agent](#setting-up-the-fleet-agent)), after which it starts enforcing agent configuration with no extra step required. |
 | `flatpak-inventory.timer` | Runs `flatpak-inventory.py` every 15 minutes (starting 5 minutes after boot) to rebuild the `flatpak_packages` SQLite table Fleet's osquery ATC config reads. See [Flatpak Software Inventory in Fleet](#flatpak-software-inventory-in-fleet). |
 | `trayscale-flatpak-install.service` | Installs the Trayscale Flatpak app from Flathub on first boot if not already present; a no-op on every subsequent boot. See [Preinstalled Flatpak Apps](#preinstalled-flatpak-apps). |
+| `powertop-autotune.service` | Runs `powertop --auto-tune` once per boot to apply powertop's recommended power-saving settings (runtime PM for PCI/USB devices, disk/audio power management, etc.). Only touches runtime `/sys`/`/proc` state, not `/etc`, so it re-applies every boot rather than persisting configuration. |
 
 ## Homebrew
 
