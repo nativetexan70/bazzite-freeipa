@@ -1,6 +1,6 @@
 # bazzite-freeipa
 
-A custom [bootc](https://github.com/bootc-dev/bootc) image layered on [Bazzite](https://github.com/ublue-os/bazzite) (Universal Blue) that ships `freeipa-client` and the [Fleet](https://fleetdm.com/) osquery agent (`fleetd`/`orbit`) pre-installed. The image is built and published automatically to GHCR via GitHub Actions and is designed to preserve an existing FreeIPA domain join and Fleet enrollment across `bootc` updates.
+A custom [bootc](https://github.com/bootc-dev/bootc) image layered on [Bazzite](https://github.com/ublue-os/bazzite) (Universal Blue) that ships `freeipa-client` pre-installed. The image is built and published automatically to GHCR via GitHub Actions and is designed to preserve an existing FreeIPA domain join across `bootc` updates.
 
 Published image: `ghcr.io/personalcyber/bazzite-freeipa:latest`
 
@@ -86,44 +86,6 @@ sudo ipa-client-install --uninstall
 
 ---
 
-# Setting Up the Fleet Agent
-
-The Fleet osquery agent (`fleetd`, i.e. `orbit` + `osqueryd`) is pre-installed but ships **unconfigured** — the image is built without a Fleet server URL or enrollment secret baked in, so it never phones home until you point it at your own Fleet instance. See Fleet's [agent configuration docs](https://fleetdm.com/docs/configuration/agent-configuration) for the full set of options.
-
-## Enrolling the Host
-
-Create `/etc/default/orbit` with your Fleet server details:
-
-```bash
-sudo tee /etc/default/orbit > /dev/null <<'EOF'
-ORBIT_FLEET_URL=https://fleet.your.domain.example
-ORBIT_ENROLL_SECRET=your-enroll-secret
-# Or, to keep the secret out of this file, reference a separate file instead:
-# ORBIT_ENROLL_SECRET_PATH=/etc/default/orbit-secret
-EOF
-sudo chmod 0600 /etc/default/orbit
-sudo systemctl restart orbit
-```
-
-`orbit` is already enabled, so it starts enforcing the new configuration as soon as the service restarts (or at next boot).
-
-Verify enrollment:
-
-```bash
-systemctl status orbit
-```
-
-The host should then appear in your Fleet server's UI within a few minutes.
-
-## Leaving Fleet
-
-```bash
-sudo systemctl stop orbit
-sudo rm -f /etc/default/orbit
-```
-
----
-
 # FreeIPA Join Persistence
 
 This image is specifically designed so that an existing domain join survives `bootc` updates. Here is how it works.
@@ -146,42 +108,11 @@ Runtime state (`/var/lib/sss/`, `/var/log/sssd/`) lives under `/var`, which boot
 
 ---
 
-# Fleet Enrollment Persistence
-
-The same three-way `/etc` merge logic protects Fleet enrollment. `orbit.service` reads its configuration (Fleet server URL, enrollment secret, TLS settings) from `/etc/default/orbit` via an `EnvironmentFile` directive. This image never ships content in that file — the build strips it unconditionally after installing the `fleet-osquery` package — so once you create it locally (see [Setting Up the Fleet Agent](#setting-up-the-fleet-agent)), bootc treats it purely as a local addition and never overwrites it.
-
-**In practice:** after a `bootc update` and reboot, `orbit` comes back up reading the same `/etc/default/orbit` it had before the update, and the host stays enrolled without any intervention.
-
----
-
-# Flatpak Software Inventory in Fleet
-
-osquery has no native `flatpak_packages` table (unlike `deb_packages`/`rpm_packages`), so Fleet's Software inventory can't see installed Flatpak apps out of the box — a real gap on an image where Flatpak/Flathub is a first-class app delivery mechanism.
-
-This image ships a `flatpak-inventory.timer` (enabled by default, runs every 15 minutes starting 5 minutes after boot) that rebuilds a `flatpak_packages` table in a plain SQLite database at `/var/lib/flatpak-inventory/flatpak.db`, using osquery's [Automatic Table Construction (ATC)](https://osquery.readthedocs.io/en/stable/deployment/config-server/#automatic-table-construction) to expose it as a normal queryable table. Only the system-wide Flatpak installation (`/var/lib/flatpak`) is covered, since the timer runs as root; per-user installs under `~/.local/share/flatpak` are not enumerated.
-
-The database is inert on its own — it needs a Fleet-side `agent_options` entry to actually become queryable (this lives in your Fleet server's config, not something this image can ship):
-
-```yaml
-config:
-  options:
-    # ... existing options ...
-  auto_table_construction:
-    flatpak_packages:
-      query: "SELECT application, version, branch, origin, ref, installation FROM flatpak_packages"
-      path: "/var/lib/flatpak-inventory/flatpak.db"
-      columns: ["application", "version", "branch", "origin", "ref", "installation"]
-```
-
-Once that's configured, `SELECT * FROM flatpak_packages;` works as a live or scheduled query, same as any built-in package table. It won't show on the Host Details Software tab, since that view only aggregates the known built-in package tables, but it's fully queryable/exportable through Fleet's log pipeline.
-
----
-
 # Preinstalled Flatpak Apps
 
 [Trayscale](https://github.com/DeedleFake/trayscale) (Flathub app ID `dev.deedles.Trayscale`) — a small GTK4 tray GUI wrapping the `tailscale` CLI — is installed system-wide via Flatpak automatically on first boot.
 
-Unlike `freeipa-client` or `fleet-osquery`, this isn't baked into the image at build time: `/var/lib/flatpak` isn't carried over from the container image on `bootc switch` onto a real (non-fresh-install) system (see [`/var` Runtime Directories](#var-runtime-directories) below), and reseeding a full Flatpak app + runtime via `tmpfiles.d` would meaningfully bloat every deployment. Instead, a `trayscale-flatpak-install.service` oneshot unit (enabled by default) adds the `flathub` remote if missing and installs the app the first time it's not already present, then is a no-op on every subsequent boot.
+Unlike `freeipa-client`, this isn't baked into the image at build time: `/var/lib/flatpak` isn't carried over from the container image on `bootc switch` onto a real (non-fresh-install) system (see [`/var` Runtime Directories](#var-runtime-directories) below), and reseeding a full Flatpak app + runtime via `tmpfiles.d` would meaningfully bloat every deployment. Instead, a `trayscale-flatpak-install.service` oneshot unit (enabled by default) adds the `flathub` remote if missing and installs the app the first time it's not already present, then is a no-op on every subsequent boot.
 
 ---
 
@@ -196,7 +127,6 @@ This image is built on top of `ghcr.io/ublue-os/bazzite-gnome:stable` and makes 
 | `freeipa-client` | Core FreeIPA client tooling (`ipa-client-install`, `ipa` CLI). Also pulls in `sssd`, `krb5-workstation`, `certmonger`, and other required dependencies. |
 | `oddjob` | D-Bus service that allows `sssd` to perform privileged operations (e.g. creating home directories) on behalf of unprivileged processes. |
 | `oddjob-mkhomedir` | PAM module and helper that automatically creates a home directory on first login for domain users. |
-| `fleet-osquery` (`orbit`) | Fleet's osquery agent manager. Built at image-build time via `fleetctl package` (no public dnf/yum repo exists for it) and installed without a Fleet server URL or enrollment secret baked in. |
 | `powertop` | Power usage/tuning tool. Its `--auto-tune` mode is run automatically on every boot; see the `powertop-autotune.service` entry below. |
 
 ## Systemd Units Enabled
@@ -206,8 +136,6 @@ This image is built on top of `ghcr.io/ublue-os/bazzite-gnome:stable` and makes 
 | `sssd` | System Security Services Daemon — handles Kerberos authentication, LDAP user/group lookups, and caching for the FreeIPA domain. |
 | `oddjobd` | D-Bus daemon for `oddjob`. Must be running for `pam_oddjob_mkhomedir` to create home directories at login. |
 | `podman.socket` | Inherited from the Bazzite base; retained for rootless container support. |
-| `orbit` | Fleet's agent manager. Enabled unconfigured; it logs connection errors until `/etc/default/orbit` is populated (see [Setting Up the Fleet Agent](#setting-up-the-fleet-agent)), after which it starts enforcing agent configuration with no extra step required. |
-| `flatpak-inventory.timer` | Runs `flatpak-inventory.py` every 15 minutes (starting 5 minutes after boot) to rebuild the `flatpak_packages` SQLite table Fleet's osquery ATC config reads. See [Flatpak Software Inventory in Fleet](#flatpak-software-inventory-in-fleet). |
 | `trayscale-flatpak-install.service` | Installs the Trayscale Flatpak app from Flathub on first boot if not already present; a no-op on every subsequent boot. See [Preinstalled Flatpak Apps](#preinstalled-flatpak-apps). |
 | `powertop-autotune.service` | Runs `powertop --auto-tune` once per boot to apply powertop's recommended power-saving settings (runtime PM for PCI/USB devices, disk/audio power management, etc.). Only touches runtime `/sys`/`/proc` state, not `/etc`, so it re-applies every boot rather than persisting configuration. |
 
@@ -262,23 +190,6 @@ This image creates the following empty directory skeletons at build time:
 | `/etc/sssd/conf.d/` | `0750` | Drop-in directory for SSSD config fragments. `ipa-client-install` writes `sssd.conf` one level up. |
 
 No config files are shipped inside these directories. Every file written by `ipa-client-install` is a local addition from bootc's perspective and will never be touched by an image update.
-
-## Fleet Agent Packaging
-
-Fleet's `fleetctl package` command (the only supported way to produce an installable `fleetd` package, since there is no public dnf/yum repo) is used at image-build time to build a `fleet-osquery` rpm. This requires `fpm` and its build dependencies (`ruby`, `ruby-devel`, `rubygems`, `rpm-build`, `gcc`, `make`, `redhat-rpm-config`). `fleetctl`, the `fpm` gem, and the `ruby`/`ruby-devel`/`rubygems`/`rpm-build` packages are all removed once the rpm is built and installed — a leftover system Ruby causes the Homebrew install step further down to use it instead of its own vendored Ruby, and Fedora's base `ruby` package is missing the `json` stdlib gem Homebrew needs. `gcc` and `make` are left in place, since unlike Ruby they may already be relied on elsewhere in the base Bazzite image (e.g. akmods/DKMS builds) and blindly removing them is riskier than the modest space they cost.
-
-The package is built without `--fleet-url`/`--enroll-secret`, and `/etc/default/orbit` — the file `orbit.service` reads its configuration from — is deleted unconditionally after installation so this image never ships enrollment details. See [Fleet Enrollment Persistence](#fleet-enrollment-persistence) for why this matters across updates.
-
-`fleet-osquery` installs orbit's files under `/opt/orbit` and `/usr/local/bin`, both of which are symlinked into `/var` on this image. bootc/ostree do not carry arbitrary `/var` content from the container image into a deployed system beyond a genuinely first-ever install (and recent ostree versions dropped that entirely) — `/var` is machine-local state, populated via `systemd-tmpfiles`, not shipped with the image. Without a workaround, `bootc switch` onto this image (the documented, common path) would leave `/opt/orbit` and `/usr/local/bin/orbit` completely empty even though rpm's database lists them as installed. `build.sh` works around this by stashing what the rpm installs under `/usr/lib/fleetd-seed/` (a plain path that *is* committed normally) and shipping a `systemd-tmpfiles.d` snippet (`/usr/lib/tmpfiles.d/fleetd-seed.conf`) that copies it into place through the symlinks on first boot. The tmpfiles `C` directive only acts if its destination doesn't already exist, so this never clobbers orbit's own self-updated binaries later.
-
-> [!NOTE]
-> The Homebrew installation described below relies on the same "`/var` is seeded from the image" assumption that turned out to be false for Fleet's `/opt`/`/usr/local` content. It has not been independently re-verified against a real `bootc switch` deployment since this was discovered, and may have the same gap.
-
-## Flatpak Inventory Script
-
-`flatpak-inventory.py` is installed to `/usr/libexec/flatpak-inventory.py` and run periodically by `flatpak-inventory.timer`. It shells out to `flatpak list --app --columns=application,version,branch,origin,ref,installation` — the `--columns` form gives stable, script-friendly tab-separated output with no header, unlike the default human-oriented table — and rebuilds (`DROP`+`CREATE`, so removed apps disappear) a `flatpak_packages` table in a SQLite database at `/var/lib/flatpak-inventory/flatpak.db`.
-
-Unlike orbit's `/opt` payload above, this database only ever exists at runtime — the script creates its own database directory (`os.makedirs`) the first time it runs — so there's no build-time `/var` content that needs `tmpfiles.d` seeding here; the class of bug fixed for Fleet's `/opt`/`/usr/local` files doesn't apply.
 
 ## /var Runtime Directories
 

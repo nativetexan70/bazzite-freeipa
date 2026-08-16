@@ -79,191 +79,26 @@ install -d -m 0755 /usr/share/alsa/ucm2
 cp -a "/tmp/alsa-ucm-conf-cros-${_ucm_cros_rev}/ucm2/." /usr/share/alsa/ucm2/
 rm -rf /tmp/alsa-ucm-conf-cros.tar.gz "/tmp/alsa-ucm-conf-cros-${_ucm_cros_rev}"
 
-### Install Fleet agent (fleetd/orbit)
-#
-# fleetd is Fleet's cross-platform osquery agent (orbit + osqueryd):
-# https://fleetdm.com/docs/using-fleet/orbit
-# https://fleetdm.com/docs/configuration/agent-configuration
-#
-# There is no public dnf/yum repo for it. The only supported way to obtain
-# an installable package is `fleetctl package`, which fetches the orbit and
-# osqueryd binaries from Fleet's TUF update server (tuf.fleetctl.com) and
-# wraps them into an rpm using fpm. Install fpm's build dependencies, grab
-# the latest fleetctl release, and build the rpm WITHOUT --fleet-url or
-# --enroll-secret so no server address or secret is baked into the image.
-
-dnf5 install -y ruby ruby-devel rubygems rpm-build gcc make redhat-rpm-config
-
-# Fedora's rubygems defaults to a per-user install (under $HOME) even when
-# run as root, which would land the gem cache under /root. /root, /usr/local,
-# /opt, etc. are all symlinked into /var on this ostree-based image (see the
-# /opt note in the Containerfile) and /var isn't populated during this RUN
-# step, so nothing can be created under any of them. Pin GEM_HOME under
-# /tmp (tmpfs-mounted for this RUN step, see Containerfile) to sidestep
-# that, with its bin/ on PATH so `fleetctl package` can find the fpm
-# executable it shells out to.
-export GEM_HOME=/tmp/fleet-fpm-gems
-export PATH="${GEM_HOME}/bin:${PATH}"
-mkdir -p "${GEM_HOME}"
-gem install --no-document fpm
-
-# fleetctl separately writes a query-history file straight to /root/.goquery
-# regardless of $HOME (it resolves the home directory via the OS user
-# database, not the environment), so the HOME trick above wouldn't have
-# covered it anyway. Fix it at the source instead: create the real backing
-# directory for the /root -> /var/roothome symlink.
-mkdir -p /var/roothome
-
-_fleet_version="$(curl -fsSL https://api.github.com/repos/fleetdm/fleet/releases/latest |
-    jq -r '.tag_name' | sed 's/^fleet-v//')"
-_fleet_workdir="$(mktemp -d)"
-curl -fsSL \
-    "https://github.com/fleetdm/fleet/releases/download/fleet-v${_fleet_version}/fleetctl_v${_fleet_version}_linux_amd64.tar.gz" \
-    -o "${_fleet_workdir}/fleetctl.tar.gz"
-tar -xzf "${_fleet_workdir}/fleetctl.tar.gz" -C "${_fleet_workdir}"
-_fleetctl="${_fleet_workdir}/fleetctl_v${_fleet_version}_linux_amd64/fleetctl"
-chmod 0755 "${_fleetctl}"
-
-# fleetctl is invoked directly from ${_fleet_workdir} rather than installed
-# to /usr/local/bin: /usr/local is symlinked into /var on this ostree-based
-# image (see the GEM_HOME note above) and isn't writable during this RUN
-# step.
-(cd "${_fleet_workdir}" && "${_fleetctl}" package --type rpm)
-
-# fleet-osquery writes orbit's TUF-managed binary tree under /opt/orbit AND
-# a launcher under /usr/local/bin. Both /opt and /usr/local are symlinked
-# into /var in this image (see the [IM]MUTABLE /opt note in the
-# Containerfile), and /var isn't populated during this RUN step, so
-# pre-create both real backing directories just so dnf5 has somewhere to
-# write through the symlinks.
-mkdir -p /var/opt /var/usrlocal
-
-# fpm-generated postinstall scriptlets (%post/%posttrans) call systemctl in
-# ways that fail hard in this scriptless buildah container (no systemd
-# PID 1), unlike the tolerant %systemd_post macros freeipa's packages use
-# above. Skip scriptlets entirely — we enable orbit.service ourselves
-# below regardless of whatever the package's postinstall would have done.
-dnf5 install -y --setopt=tsflags=noscripts "${_fleet_workdir}"/fleet-osquery*.rpm
-
-### Seed orbit's /opt and /usr/local files onto real (non-fresh-install) systems
-#
-# bootc/ostree do NOT carry arbitrary /var content from the container image
-# into a deployed system beyond a genuinely first-ever install, and recent
-# ostree versions dropped even that: /var is machine-local state, meant to
-# be populated via systemd-tmpfiles, not shipped with the image. Since
-# /opt and /usr/local both resolve through /var here, the files fleet-
-# osquery just installed above only exist in this ephemeral build layer --
-# on `bootc switch` (the documented, common path onto this image), rpm's
-# database ends up listing /opt/orbit/... and /usr/local/bin/orbit as
-# installed while the paths themselves are completely empty.
-#
-# Work around this by stashing what was just installed under a plain /usr
-# path (which IS committed normally -- orbit.service loading correctly
-# from /usr/lib/systemd/system proves that), then shipping a tmpfiles.d
-# snippet that copies it into place through the symlinks on first boot.
-# The 'C' tmpfiles directive only acts if its destination doesn't already
-# exist, so this never clobbers orbit's own self-updated binaries later.
-mkdir -p /usr/lib/fleetd-seed
-cp -a /opt/orbit /usr/lib/fleetd-seed/opt-orbit
-cp -a /usr/local/bin/orbit /usr/lib/fleetd-seed/usrlocal-bin-orbit
-
-install -d -m 0755 /usr/lib/tmpfiles.d
-cat > /usr/lib/tmpfiles.d/fleetd-seed.conf << 'EOF'
-# Populate /opt/orbit and /usr/local/bin/orbit (both resolving into /var)
-# from the image-committed seed the first time they're missing. See the
-# Fleet agent section of build.sh for why this exists.
-C /opt/orbit - - - - /usr/lib/fleetd-seed/opt-orbit
-C /usr/local/bin/orbit - - - - /usr/lib/fleetd-seed/usrlocal-bin-orbit
-EOF
-
-# Make sure orbit.service doesn't race the tmpfiles seeding above. This is
-# almost certainly already guaranteed by systemd's default ordering (both
-# sysinit.target, which pulls in systemd-tmpfiles-setup.service, and
-# orbit.service's own multi-user.target dependency chain go through
-# basic.target), but it's cheap to make explicit.
-install -d -m 0755 /usr/lib/systemd/system/orbit.service.d
-cat > /usr/lib/systemd/system/orbit.service.d/10-wait-for-seed.conf << 'EOF'
-[Unit]
-After=systemd-tmpfiles-setup.service
-EOF
-
-### Preserve Fleet enrollment state across bootc updates
-#
-# Same three-way /etc merge concern as FreeIPA above: orbit's runtime
-# configuration (Fleet server URL, enrollment secret path, TLS settings)
-# lives in /etc/default/orbit, which is read via orbit.service's
-# EnvironmentFile directive. Because the package was built without
-# --fleet-url/--enroll-secret, that file should already be free of server
-# details, but strip it unconditionally so this image never ships any
-# content there. An operator enrolls the host later (populating
-# /etc/default/orbit and enabling the service); bootc will treat that as a
-# local addition and never touch it on subsequent updates.
-
-rm -f /etc/default/orbit
-
-# fleetctl and fpm itself are only needed to produce the package and don't
-# need to ship in the final image.
-rm -rf "${GEM_HOME}"
-rm -rf "${_fleet_workdir}"
-# Drop the query-history file fleetctl wrote to /root/.goquery; /var/roothome
-# itself stays, since it's the image's real backing directory for the
-# pre-existing /root symlink, not something this build step introduced.
-rm -rf /var/roothome/.goquery
-unset _fleet_version _fleet_workdir _fleetctl GEM_HOME
-
-# ruby/ruby-devel/rubygems/rpm-build are also removed: nothing else in this
-# image legitimately needs a system Ruby, and leaving one in place makes
-# the Homebrew installer below pick it up instead of its own vendored Ruby
-# -- Fedora splits the 'json' stdlib gem out of the base ruby package, so
-# Homebrew's install script fails with a LoadError as soon as it tries to
-# use the system interpreter. gcc/make/redhat-rpm-config are left alone:
-# unlike ruby, they may already be relied on by the base Bazzite image for
-# akmods/DKMS builds, and `dnf5 remove` can't tell "installed only for this
-# step" apart from "already required by the base image".
-dnf5 remove -y ruby ruby-devel rubygems rpm-build || true
-
-### Flatpak inventory for osquery Automatic Table Construction (ATC)
-#
-# osquery has no native flatpak_packages table (unlike deb_packages /
-# rpm_packages), so Fleet's Software inventory can't see installed
-# Flatpak apps -- a real gap on an image where Flatpak/Flathub is a
-# first-class app delivery mechanism. flatpak-inventory.py rebuilds a
-# flatpak_packages table in a plain SQLite database that osquery's ATC
-# feature can expose as a normal queryable table; see the
-# auto_table_construction snippet in README.md for the Fleet-side config
-# needed to actually wire it up. Unlike orbit's /opt payload above, the
-# database only ever exists at runtime (the script creates its own
-# directory), so there's no build-time /var content requiring tmpfiles.d
-# seeding here.
-
-install -d -m 0755 /usr/libexec
-install -m 0755 /ctx/flatpak-inventory.py /usr/libexec/flatpak-inventory.py
-install -m 0644 /ctx/flatpak-inventory.service \
-    /usr/lib/systemd/system/flatpak-inventory.service
-install -m 0644 /ctx/flatpak-inventory.timer \
-    /usr/lib/systemd/system/flatpak-inventory.timer
-
 ### Install Trayscale (Tailscale tray GUI) via Flatpak
 #
 # Trayscale (https://github.com/DeedleFake/trayscale, Flathub app ID
 # dev.deedles.Trayscale) is a small GTK4 tray app wrapping the tailscale
-# CLI. It is NOT installed via `flatpak install` here at build time: per
-# the "bootc/ostree do NOT carry /var content..." note in the Fleet agent
-# section above, anything written under /var/lib/flatpak during this RUN
-# step would only exist in this ephemeral build layer and be silently
-# absent after `bootc switch` -- the documented, common path onto this
-# image -- onto a real (non-fresh-install) system. Baking the app and its
-# runtime into /usr and reseeding it via tmpfiles.d (as done for orbit)
-# isn't a good fit either: unlike orbit's two files, a Flatpak app plus its
-# runtime is a large, complex OSTree-like repo layout, and copying it into
-# the image would meaningfully bloat every deployment even for hosts that
-# never use it.
+# CLI. It is NOT installed via `flatpak install` here at build time:
+# bootc/ostree do NOT carry arbitrary /var content from the container
+# image into a deployed system beyond a genuinely first-ever install, so
+# anything written under /var/lib/flatpak during this RUN step would only
+# exist in this ephemeral build layer and be silently absent after
+# `bootc switch` -- the documented, common path onto this image -- onto a
+# real (non-fresh-install) system. Baking the app and its runtime into
+# /usr and reseeding it via tmpfiles.d isn't a good fit either: a Flatpak
+# app plus its runtime is a large, complex OSTree-like repo layout, and
+# copying it into the image would meaningfully bloat every deployment
+# even for hosts that never use it.
 #
 # Instead, ship a oneshot systemd service that installs it from Flathub on
 # first boot (guarded by a ConditionPathExists so it only ever runs once
 # the app isn't already present) and enable it below. This mirrors how
-# FreeIPA join and Fleet enrollment are also runtime, not build-time,
-# actions in this image.
+# FreeIPA join is also a runtime, not build-time, action in this image.
 
 install -m 0644 /ctx/trayscale-flatpak-install.service \
     /usr/lib/systemd/system/trayscale-flatpak-install.service
@@ -295,12 +130,6 @@ EOF
 systemctl enable sssd
 systemctl enable oddjobd
 systemctl enable podman.socket
-# orbit will log connection errors until an operator populates
-# /etc/default/orbit with a Fleet server URL and enrollment secret, but
-# enabling it now means it starts enforcing agent configuration as soon as
-# that file is in place, with no extra step required after enrollment.
-systemctl enable orbit || true
-systemctl enable flatpak-inventory.timer
 systemctl enable trayscale-flatpak-install.service
 systemctl enable powertop-autotune.service
 
