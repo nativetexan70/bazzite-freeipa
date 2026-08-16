@@ -1,0 +1,13 @@
+[Unit]
+Description=Install Trayscale Flatpak app
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=!/var/lib/flatpak/app/dev.deedles.Trayscale
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/flatpak remote-add --system --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+ExecStart=/usr/bin/flatpak install --system --noninteractive -y flathub dev.deedles.Trayscale
+
+[Install]
+WantedBy=multi-user.target

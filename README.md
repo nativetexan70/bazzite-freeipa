@@ -177,6 +177,14 @@ Once that's configured, `SELECT * FROM flatpak_packages;` works as a live or sch
 
 ---
 
+# Preinstalled Flatpak Apps
+
+[Trayscale](https://github.com/DeedleFake/trayscale) (Flathub app ID `dev.deedles.Trayscale`) — a small GTK4 tray GUI wrapping the `tailscale` CLI — is installed system-wide via Flatpak automatically on first boot.
+
+Unlike `freeipa-client` or `fleet-osquery`, this isn't baked into the image at build time: `/var/lib/flatpak` isn't carried over from the container image on `bootc switch` onto a real (non-fresh-install) system (see [`/var` Runtime Directories](#var-runtime-directories) below), and reseeding a full Flatpak app + runtime via `tmpfiles.d` would meaningfully bloat every deployment. Instead, a `trayscale-flatpak-install.service` oneshot unit (enabled by default) adds the `flathub` remote if missing and installs the app the first time it's not already present, then is a no-op on every subsequent boot.
+
+---
+
 # Changes to the Base Bazzite Image
 
 This image is built on top of `ghcr.io/ublue-os/bazzite-gnome:stable` and makes the following deliberate modifications to support FreeIPA client functionality and ensure join state survives `bootc` updates.
@@ -199,6 +207,7 @@ This image is built on top of `ghcr.io/ublue-os/bazzite-gnome:stable` and makes 
 | `podman.socket` | Inherited from the Bazzite base; retained for rootless container support. |
 | `orbit` | Fleet's agent manager. Enabled unconfigured; it logs connection errors until `/etc/default/orbit` is populated (see [Setting Up the Fleet Agent](#setting-up-the-fleet-agent)), after which it starts enforcing agent configuration with no extra step required. |
 | `flatpak-inventory.timer` | Runs `flatpak-inventory.py` every 15 minutes (starting 5 minutes after boot) to rebuild the `flatpak_packages` SQLite table Fleet's osquery ATC config reads. See [Flatpak Software Inventory in Fleet](#flatpak-software-inventory-in-fleet). |
+| `trayscale-flatpak-install.service` | Installs the Trayscale Flatpak app from Flathub on first boot if not already present; a no-op on every subsequent boot. See [Preinstalled Flatpak Apps](#preinstalled-flatpak-apps). |
 
 ## Homebrew
 
