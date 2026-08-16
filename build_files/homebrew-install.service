@@ -1,0 +1,12 @@
+[Unit]
+Description=Install Homebrew on first boot
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=!/home/linuxbrew/.linuxbrew/bin/brew
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/homebrew-install.sh
+
+[Install]
+WantedBy=multi-user.target
