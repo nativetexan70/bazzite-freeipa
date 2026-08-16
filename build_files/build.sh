@@ -9,7 +9,8 @@ set -ouex pipefail
 dnf5 install -y \
     freeipa-client \
     oddjob \
-    oddjob-mkhomedir
+    oddjob-mkhomedir \
+    powertop
 
 ### Preserve FreeIPA join state across bootc updates
 #
@@ -242,6 +243,28 @@ install -m 0644 /ctx/flatpak-inventory.service \
 install -m 0644 /ctx/flatpak-inventory.timer \
     /usr/lib/systemd/system/flatpak-inventory.timer
 
+### Power-saving tuning via powertop --auto-tune
+#
+# powertop --auto-tune applies its recommended power-saving settings
+# (runtime PM for PCI/USB devices, disk/audio power management, etc.)
+# without the interactive UI. It only touches runtime device/kernel state
+# under /sys and /proc, not /etc, so there's nothing for bootc's three-way
+# /etc merge to preserve here -- the service just needs to re-run on every
+# boot, since none of that tuning survives a reboot on its own.
+
+cat > /usr/lib/systemd/system/powertop-autotune.service << 'EOF'
+[Unit]
+Description=Powertop auto-tune power-saving settings
+After=multi-user.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/powertop --auto-tune
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
 ### Enable required system units
 
 systemctl enable sssd
@@ -253,6 +276,7 @@ systemctl enable podman.socket
 # that file is in place, with no extra step required after enrollment.
 systemctl enable orbit || true
 systemctl enable flatpak-inventory.timer
+systemctl enable powertop-autotune.service
 
 ### Fix bootc-image-builder ISO manifest generation compatibility
 #
