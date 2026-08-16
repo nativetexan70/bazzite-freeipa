@@ -105,6 +105,18 @@ jobs:
           tags: ${{ steps.metadata.outputs.tags }}
           labels: ${{ steps.metadata.outputs.labels }}
           oci: false
+          # redhat-actions/buildah-build defaults 'squash' to true, which
+          # forces buildah to flatten the ENTIRE final filesystem -- base
+          # image included -- into one layer at commit time. That final
+          # squash/commit alone accounted for over half of total build
+          # time (~13 of ~24 minutes) in past runs, walking the whole
+          # merged rootfs through the slower fuse-overlayfs storage driver.
+          # bootc/ostree consume standard multi-layer OCI images fine, so
+          # there's no correctness reason to squash here. Disabling it
+          # also means only the layer(s) build.sh/COPY actually changed
+          # need pushing/pulling on each build, instead of re-uploading
+          # the whole base OS as a new blob every time.
+          squash: false
 
       # Rechunk is a script that we use on Universal Blue to make sure there isnt a single huge layer when your image gets published.
       # This does not make your image faster to download, just provides better resumability and fixes a few errors.
